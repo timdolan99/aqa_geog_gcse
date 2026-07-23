@@ -80,22 +80,24 @@ def didactic_fallback(state: ChatState) -> dict:
     results = db.similarity_search(user_query, k=3, filter={"sub_topic": sub_topic})
     context = "\n\n".join([doc.page_content for doc in results]) if results else "No specific syllabus context found."
 
-    system_prompt = f"""You are an expert Pearson GCSE History Tutor. The student needs direct clarification.
+    system_prompt = f"""You are an expert Pearson GCSE History Tutor. The student has completed the Socratic session.
     Topic Focus: {sub_topic}
     Syllabus Context:
     {context}
 
     Instructions:
-    1. Provide a direct, structured explanation addressing the student's question.
-    2. Highlight key historical facts, dates, key figures, and cause/consequence relationships.
-    3. End with a simple check-for-understanding question.
+    1. Provide a comprehensive, structured summary addressing key historical facts, dates, key figures, and cause/consequence relationships related to the discussion.
+    2. DO NOT ask any follow-up questions. Conclude with a brief congratulatory wrap-up note.
     """
 
     llm = ChatGoogleGenerativeAI(model="gemini-3.6-flash", temperature=0.2)
-    response = llm.invoke([HumanMessage(content=system_prompt)] + state["messages"])
+    
+    # Clean list concatenation
+    messages_to_send = [HumanMessage(content=system_prompt)] + list(state["messages"])
+    response = llm.invoke(messages_to_send)
     
     return {
-        "messages": [response],
+        "messages": state["messages"] + [response],
         "exchange_count": state["exchange_count"] + 1
     }
 

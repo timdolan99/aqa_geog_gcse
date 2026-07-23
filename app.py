@@ -223,21 +223,25 @@ else:
         else:
             st.markdown(f'<div class="student-msg">🎒 <b>Student</b><br>{msg["content"]}</div>', unsafe_allow_html=True)
 
-    if user_input := st.chat_input("Type your response here..."):
-        st.session_state.messages.append({"role": "student", "content": user_input})
-        st.session_state.graph_state["messages"].append(HumanMessage(content=user_input))
-        
-        st.session_state.turn_count += 1
-        st.session_state.graph_state["exchange_count"] = st.session_state.turn_count
-        
-        with st.spinner("Analyzing response..."):
-            updated_state = workflow.invoke(st.session_state.graph_state)
-        
-        last_msg = updated_state["messages"][-1]
-        ai_reply = extract_clean_text(last_msg)
 
-        display_style = "summary-box" if st.session_state.turn_count >= 5 else "tutor-msg"
-        
-        st.session_state.messages.append({"role": "tutor", "content": ai_reply, "style": display_style})
-        st.session_state.graph_state = updated_state
-        st.rerun()
+    if st.session_state.turn_count >= 5:
+        st.info("🎉 **Session Complete!** You have finished the Socratic dialogue and received your topic summary note. Click **New Session / Change Topic** in the sidebar to review another topic.")
+    else:
+        if user_input := st.chat_input("Type your response here..."):
+            st.session_state.messages.append({"role": "student", "content": user_input})
+            st.session_state.graph_state["messages"].append(HumanMessage(content=user_input))
+            
+            st.session_state.turn_count += 1
+            st.session_state.graph_state["exchange_count"] = st.session_state.turn_count
+            
+            with st.spinner("Analyzing response..."):
+                updated_state = workflow.invoke(st.session_state.graph_state)
+            
+            last_msg = updated_state["messages"][-1]
+            ai_reply = extract_clean_text(last_msg)
+
+            display_style = "summary-box" if st.session_state.turn_count >= 5 else "tutor-msg"
+            
+            st.session_state.messages.append({"role": "tutor", "content": ai_reply, "style": display_style})
+            st.session_state.graph_state = updated_state
+            st.rerun()
