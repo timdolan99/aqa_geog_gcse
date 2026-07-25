@@ -5,7 +5,7 @@ from langchain_chroma import Chroma
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from socratic_fsm import workflow
 
-# --- Text Extractor Helper to Fix Dictionary/Metadata Format Output ---
+# --- Text Extractor Helper ---
 def extract_clean_text(response) -> str:
     """Extracts plain text response from Gemini output structures."""
     if isinstance(response, str):
@@ -30,7 +30,7 @@ def extract_clean_text(response) -> str:
             
     return str(response)
 
-# --- 1. Enhanced Custom Styling ---
+# --- 1. Custom Styling ---
 st.markdown("""
     <style>
     /* Background & Main Container */
@@ -47,16 +47,16 @@ st.markdown("""
         font-weight: 700;
     }
     
-    /* Sleek Vibrant Header */
+    /* Sleek Vibrant CS Header */
     .chat-header { 
-        background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%); 
+        background: linear-gradient(135deg, #0f172a 0%, #2563eb 100%); 
         color: white; 
         padding: 22px; 
         font-weight: 700; 
         text-align: center; 
         font-size: 1.3em; 
         border-radius: 16px; 
-        box-shadow: 0 10px 15px -3px rgba(30, 58, 138, 0.25);
+        box-shadow: 0 10px 15px -3px rgba(37, 99, 235, 0.25);
         margin-bottom: 24px; 
         letter-spacing: 0.5px;
     }
@@ -84,7 +84,7 @@ st.markdown("""
         border: 1px solid #e2e8f0;
     }
     .student-msg { 
-        background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%); 
+        background: linear-gradient(135deg, #1d4ed8 0%, #3b82f6 100%); 
         color: white; 
         padding: 16px 20px; 
         border-radius: 18px 18px 4px 18px; 
@@ -92,14 +92,14 @@ st.markdown("""
         max-width: 82%; 
         margin-left: auto; 
         line-height: 1.5;
-        box-shadow: 0 4px 6px -1px rgba(30, 58, 138, 0.2);
+        box-shadow: 0 4px 6px -1px rgba(29, 78, 216, 0.2);
     }
     .summary-box { 
-        background: #fefce8; 
-        border-left: 5px solid #eab308; 
+        background: #eff6ff; 
+        border-left: 5px solid #2563eb; 
         padding: 18px; 
         border-radius: 12px; 
-        color: #713f12; 
+        color: #1e3a8a; 
         font-size: 0.98em; 
         margin: 18px 0; 
         max-width: 85%; 
@@ -116,21 +116,34 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 2. Pearson Edexcel GCSE History Topics ---
-PEARSON_HISTORY_TOPICS = {
-    "Paper 1: Thematic Study & Historic Environment": [
-        "Edexcel Topic 10: Medicine in Britain (c1250–present) & Western Front",
-        "Edexcel Topic 11: Crime and Punishment in Britain (c1000–present)",
-        "Edexcel Topic 12: Warfare and British Society (c1250–present)"
+# --- 2. OCR A-Level Computer Science Specification Structure ---
+OCR_CS_TOPICS = {
+    "Component 01: Computer Systems": [
+        "1.1.1 Structure & Function of the Processor",
+        "1.1.2 Types of Processor",
+        "1.1.3 Input, Output and Storage",
+        "1.2.1 Operating Systems & Systems Software",
+        "1.2.2 Applications Generation & Translators",
+        "1.2.3 Software Development Lifecycles",
+        "1.2.4 Types of Programming Language & Assembly",
+        "1.2.5 Object-Oriented Programming",
+        "1.3.1 Compression, Encryption and Hashing",
+        "1.3.2 Databases & SQL",
+        "1.3.3 Networks & Protocols",
+        "1.3.4 Web Technologies",
+        "1.4.1 Data Types & Binary Representation",
+        "1.4.2 Data Structures",
+        "1.4.3 Boolean Algebra & Logic Gates",
+        "1.5.1 Computing Related Legislation",
+        "1.5.2 Moral, Ethical, Social & Cultural Issues"
     ],
-    "Paper 2: Period & British Depth Study": [
-        "Edexcel Topic 20: Period Study - Superpower Relations and Cold War",
-        "Edexcel Topic 21: Period Study - The American West (c1835–c1895)"
-    ],
-    "Paper 3: Modern Depth Study": [
-        "Edexcel Topic 30: Modern Depth Study - Weimar and Nazi Germany (1918–39)",
-        "Edexcel Topic 31: Modern Depth Study - Russia and the Soviet Union (1917–41)",
-        "Edexcel Topic 33: Modern Depth Study - USA (1954–75)"
+    "Component 02: Algorithms and Programming": [
+        "2.1 Elements of Computational Thinking",
+        "2.2.1 Programming Techniques & Recursion",
+        "2.2.2 Computational Methods",
+        "2.3.1 Algorithmic Complexity & Big O",
+        "2.3.1 Data Structure Algorithms & Traversals",
+        "2.3.1 Standard Searching & Sorting Algorithms"
     ]
 }
 
@@ -168,22 +181,20 @@ def reset_session():
 
 # --- 4. Single-Screen View Router ---
 if st.session_state.active_topic is None:
-    st.markdown('<div class="chat-header">📜 Pearson GCSE History Socratic Coach</div>', unsafe_allow_html=True)
+    st.markdown('<div class="chat-header">💻 OCR A-Level Computer Science Socratic Coach</div>', unsafe_allow_html=True)
     
     st.markdown('<div class="selection-card">', unsafe_allow_html=True)
     st.subheader("🎯 Select Revision Target")
-    st.write("Choose an exam paper and topic module below to launch your guided practice session:")
+    st.write("Choose a component unit and subtopic below to start your guided practice session:")
     
-    # Step 1: Main Paper Selection
     selected_unit = st.selectbox(
-        "📘 Step 1: Choose Exam Paper:",
-        options=list(PEARSON_HISTORY_TOPICS.keys())
+        "📘 Step 1: Choose Component:",
+        options=list(OCR_CS_TOPICS.keys())
     )
     
-    # Step 2: Topic Selection
     selected_subtopic = st.selectbox(
-        "🔍 Step 2: Choose Specific History Topic:",
-        options=PEARSON_HISTORY_TOPICS[selected_unit]
+        "🔍 Step 2: Choose Specific CS Topic:",
+        options=OCR_CS_TOPICS[selected_unit]
     )
     
     st.write("")
@@ -196,36 +207,35 @@ if st.session_state.active_topic is None:
     st.markdown('</div>', unsafe_allow_html=True)
 
 else:
-    topic_code = st.session_state.active_topic.split(":")[0]
-    st.markdown(f'<div class="chat-header">🎓 History Coach ({topic_code})</div>', unsafe_allow_html=True)
+    topic_code = st.session_state.active_topic.split(" ")[0]
+    st.markdown(f'<div class="chat-header">🎓 Computer Science Coach ({topic_code})</div>', unsafe_allow_html=True)
     
     with st.sidebar:
         st.subheader("📌 Active Target")
-        st.info(f"**Paper:** {st.session_state.active_unit}\n\n**Topic:** {st.session_state.active_topic}")
+        st.info(f"**Component:** {st.session_state.active_unit}\n\n**Topic:** {st.session_state.active_topic}")
         
-        st.metric(label="Turn Counter", value=f"{st.session_state.turn_count} / 5")
-        st.progress(st.session_state.turn_count / 5)
+        st.metric(label="Turn Counter", value=f"{st.session_state.turn_count} / 7")
+        st.progress(min(st.session_state.turn_count / 7, 1.0))
         
         st.write("---")
         if st.button("🔄 New Session / Change Topic", use_container_width=True):
             reset_session()
 
     if len(st.session_state.messages) == 0:
-        initial_greeting = f"Welcome! Let's review **{st.session_state.active_topic}**. What key historical cause, event, or figure springs to mind when you hear about this topic?"
+        initial_greeting = f"Welcome! Let's explore **{st.session_state.active_topic}**. What core principle, architectural concept, or algorithmic trade-off pops into mind when you think of this topic?"
         st.session_state.messages.append({"role": "tutor", "content": initial_greeting, "style": "tutor-msg"})
         st.session_state.graph_state["messages"].append(AIMessage(content=initial_greeting))
 
     for msg in st.session_state.messages:
         if msg["role"] == "tutor":
             div_class = msg.get("style", "tutor-msg")
-            header = "💡 <b>Summary Note</b>" if div_class == "summary-box" else "📜 <b>History Coach</b>"
+            header = "💡 <b>Summary Note</b>" if div_class == "summary-box" else "💻 <b>CS Tutor</b>"
             st.markdown(f'<div class="{div_class}">{header}<br>{msg["content"]}</div>', unsafe_allow_html=True)
         else:
             st.markdown(f'<div class="student-msg">🎒 <b>Student</b><br>{msg["content"]}</div>', unsafe_allow_html=True)
 
-
-    if st.session_state.turn_count >= 5:
-        st.info("🎉 **Session Complete!** You have finished the Socratic dialogue and received your topic summary note. Click **New Session / Change Topic** in the sidebar to review another topic.")
+    if st.session_state.turn_count >= 7:
+        st.info("🎉 **Session Complete!** You have completed all 7 turns of the A-Level Socratic dialogue and received your topic summary note. Click **New Session / Change Topic** in the sidebar to review another topic.")
     else:
         if user_input := st.chat_input("Type your response here..."):
             st.session_state.messages.append({"role": "student", "content": user_input})
@@ -240,7 +250,7 @@ else:
             last_msg = updated_state["messages"][-1]
             ai_reply = extract_clean_text(last_msg)
 
-            display_style = "summary-box" if st.session_state.turn_count >= 5 else "tutor-msg"
+            display_style = "summary-box" if st.session_state.turn_count >= 7 else "tutor-msg"
             
             st.session_state.messages.append({"role": "tutor", "content": ai_reply, "style": display_style})
             st.session_state.graph_state = updated_state

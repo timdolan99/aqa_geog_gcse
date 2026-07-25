@@ -53,18 +53,19 @@ def socratic_tutor(state: ChatState) -> dict:
     results = db.similarity_search(user_query, k=3, filter={"sub_topic": sub_topic})
     context = "\n\n".join([doc.page_content for doc in results]) if results else "No specific syllabus context found."
 
-    system_prompt = f"""You are an expert Pearson GCSE History Socratic Tutor.
+    system_prompt = f"""You are an expert Cambridge OCR A-Level Computer Science Socratic Tutor.
     Topic Focus: {sub_topic}
     Relevant Syllabus Context:
     {context}
 
     Pedagogical Instructions:
-    1. Guide the student using probing questions focused on historical reasoning (cause/consequence, change/continuity, significance, or evidence).
-    2. NEVER give direct answers immediately. Ask one clear, engaging follow-up question per turn.
-    3. Keep responses brief, encouraging, and focused on building GCSE History analytical skills.
+    1. Guide the student using probing questions focused on A-Level assessment objectives (AO1 recall, AO2 application, AO3 design/evaluation/trade-offs).
+    2. Encourage computational thinking: abstraction, decomposition, algorithmic efficiency (Big O), or architecture trade-offs.
+    3. NEVER give direct answers immediately. Ask exactly ONE clear, focused follow-up question per turn.
+    4. Keep responses encouraging, technically precise, and concise.
     """
 
-    llm = ChatGoogleGenerativeAI(model="gemini-3.6-flash", temperature=0.2)
+    llm = ChatGoogleGenerativeAI(model="gemini-3.6-flash")
     response = llm.invoke([HumanMessage(content=system_prompt)] + state["messages"])
     
     return {
@@ -80,19 +81,19 @@ def didactic_fallback(state: ChatState) -> dict:
     results = db.similarity_search(user_query, k=3, filter={"sub_topic": sub_topic})
     context = "\n\n".join([doc.page_content for doc in results]) if results else "No specific syllabus context found."
 
-    system_prompt = f"""You are an expert Pearson GCSE History Tutor. The student has completed the Socratic session.
+    system_prompt = f"""You are an expert Cambridge OCR A-Level Computer Science Tutor wrapping up a Socratic session.
     Topic Focus: {sub_topic}
     Syllabus Context:
     {context}
 
     Instructions:
-    1. Provide a comprehensive, structured summary addressing key historical facts, dates, key figures, and cause/consequence relationships related to the discussion.
-    2. DO NOT ask any follow-up questions. Conclude with a brief congratulatory wrap-up note.
+    1. FIRST, directly validate the student's final response (e.g., "Spot on!", "Exactly right—...", or "Close! Actually...").
+    2. IMMEDIATELY follow that validation with the final structured topic summary note (using clear headings and bullet points for key facts, definitions, and trade-offs).
+    3. DO NOT ask any follow-up questions. Conclude with a brief, encouraging wrap-up line.
     """
 
-    llm = ChatGoogleGenerativeAI(model="gemini-3.6-flash", temperature=0.2)
+    llm = ChatGoogleGenerativeAI(model="gemini-3.6-flash")
     
-    # Clean list concatenation
     messages_to_send = [HumanMessage(content=system_prompt)] + list(state["messages"])
     response = llm.invoke(messages_to_send)
     
@@ -102,8 +103,8 @@ def didactic_fallback(state: ChatState) -> dict:
     }
 
 def route_next(state: ChatState) -> str:
-    # Trigger direct explanation if student is frustrated or threshold (5 exchanges) reached
-    if state["frustration_score"] >= 1.0 or state["exchange_count"] >= 5:
+    # Trigger direct explanation if student is frustrated or A-Level threshold (7 exchanges) reached
+    if state["frustration_score"] >= 1.0 or state["exchange_count"] >= 7:
         return "didactic_fallback"
     return "socratic_tutor"
 
