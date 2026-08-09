@@ -1,19 +1,18 @@
 import streamlit as st
 import re
-from langchain_core.messages import HumanMessage, AIMessage
-from langchain_chroma import Chroma
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
+import importlib
+import socratic_fsm
+importlib.reload(socratic_fsm)
 from socratic_fsm import workflow
+from langchain_core.messages import HumanMessage, AIMessage
 
-# --- Text Extractor Helper ---
+# --- Helper 1: Text Extractor ---
 def extract_clean_text(response) -> str:
     """Extracts plain text response from Gemini output structures."""
     if isinstance(response, str):
         return response
-    
     if hasattr(response, "content"):
         return extract_clean_text(response.content)
-    
     if isinstance(response, list) and len(response) > 0:
         first_item = response[0]
         if isinstance(first_item, dict):
@@ -21,16 +20,38 @@ def extract_clean_text(response) -> str:
         elif hasattr(first_item, "text"):
             return first_item.text
         return extract_clean_text(first_item)
-    
     if isinstance(response, dict):
         if "text" in response:
             return response["text"]
         elif "content" in response:
             return extract_clean_text(response["content"])
-            
     return str(response)
 
-# --- 1. Custom Styling ---
+# --- Helper 2: LaTeX Math Cleaner ---
+def clean_latex(text: str) -> str:
+    """Removes stray LaTeX dollar signs and converts math expressions to clean bold text."""
+    text = re.sub(r'\$([^\$]+)\$', r'<b>\1</b>', text)
+    return text.replace('$', '')
+
+# --- Helper 3: Markdown to HTML Converter for Custom Div Bubbles ---
+def md_to_html(text: str) -> str:
+    """Converts Markdown elements into HTML with compact line gaps for mobile/desktop layouts."""
+    text = re.sub(r'^####\s+(.*$)', r'<h4 style="margin: 4px 0 1px 0; font-size: 1.05em; color: inherit;">\1</h4>', text, flags=re.MULTILINE)
+    text = re.sub(r'^###\s+(.*$)', r'<h3 style="margin: 6px 0 2px 0; font-size: 1.1em; color: inherit;">\1</h3>', text, flags=re.MULTILINE)
+    text = re.sub(r'^##\s+(.*$)', r'<h2 style="margin: 8px 0 2px 0; font-size: 1.2em; color: inherit;">\1</h2>', text, flags=re.MULTILINE)
+    text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
+    text = re.sub(r'\*(.*?)\*', r'<i>\1</i>', text)
+    text = re.sub(r'^\s*[-*]\s+(.*$)', r'<div style="margin: 1px 0;">• \1</div>', text, flags=re.MULTILINE)
+    
+    # Strip newlines following block tags (divs and headings) so they don't turn into <br> tags
+    text = re.sub(r'(</(div|h2|h3|h4)>)\s*\n+', r'\1', text)
+    text = re.sub(r'\n{2,}', '<br>', text)
+    text = text.replace('\n', '<br>')
+    
+    # Collapse any stacked consecutive <br> tags into a single line break
+    return re.sub(r'(<br\s*/?>\s*)+', '<br>', text)
+
+# --- 1. Custom Messaging App CSS ---
 st.markdown("""
     <style>
     /* Background & Main Container */
@@ -41,6 +62,12 @@ st.markdown("""
         background-color: #ffffff; 
         border-right: 1px solid #e2e8f0;
     }
+
+    /* Custom Green Progress Bar */
+    div[data-testid="stProgress"] > div > div > div {
+        background-color: #22c55e !important;
+    }
+
     h1, h2, h3 { 
         color: #0f172a; 
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
@@ -71,39 +98,39 @@ st.markdown("""
         margin-bottom: 20px;
     }
 
-    /* Message Bubble Aesthetics */
+    /* Bipolar Message Bubbles */
     .tutor-msg { 
         background-color: #ffffff; 
         color: #1e293b; 
-        padding: 16px 20px; 
+        padding: 14px 18px; 
         border-radius: 18px 18px 18px 4px; 
-        margin-bottom: 14px; 
+        margin-bottom: 12px; 
         max-width: 82%; 
-        line-height: 1.5; 
+        line-height: 1.35; 
         box-shadow: 0 2px 4px rgba(0,0,0,0.04);
         border: 1px solid #e2e8f0;
     }
     .student-msg { 
         background: linear-gradient(135deg, #1d4ed8 0%, #3b82f6 100%); 
         color: white; 
-        padding: 16px 20px; 
+        padding: 14px 18px; 
         border-radius: 18px 18px 4px 18px; 
-        margin-bottom: 14px; 
+        margin-bottom: 12px; 
         max-width: 82%; 
         margin-left: auto; 
-        line-height: 1.5;
+        line-height: 1.35;
         box-shadow: 0 4px 6px -1px rgba(29, 78, 216, 0.2);
     }
     .summary-box { 
-        background: #eff6ff; 
-        border-left: 5px solid #2563eb; 
-        padding: 18px; 
+        background: #fefce8; 
+        border-left: 5px solid #eab308; 
+        padding: 10px 14px; 
         border-radius: 12px; 
-        color: #1e3a8a; 
-        font-size: 0.98em; 
-        margin: 18px 0; 
+        color: #713f12; 
+        font-size: 0.93em; 
+        margin: 8px 0;
         max-width: 85%; 
-        line-height: 1.5; 
+        line-height: 1.3; 
         box-shadow: 0 2px 4px rgba(0,0,0,0.03);
     }
 
@@ -154,54 +181,40 @@ if "active_topic" not in st.session_state:
     st.session_state.active_topic = None
 if "messages" not in st.session_state:
     st.session_state.messages = []
-if "turn_count" not in st.session_state:
-    st.session_state.turn_count = 0
 if "graph_state" not in st.session_state:
     st.session_state.graph_state = {
         "messages": [],
-        "topic": None,
         "sub_topic": None,
-        "exchange_count": 0,
-        "frustration_score": 0.0
+        "turn_count": 0,
+        "is_final_turn": False
     }
 
 def reset_session():
-    st.session_state.turn_count = 0
     st.session_state.active_unit = None
     st.session_state.active_topic = None
     st.session_state.messages = []
     st.session_state.graph_state = {
         "messages": [],
-        "topic": None,
         "sub_topic": None,
-        "exchange_count": 0,
-        "frustration_score": 0.0
+        "turn_count": 0,
+        "is_final_turn": False
     }
     st.rerun()
 
 # --- 4. Single-Screen View Router ---
 if st.session_state.active_topic is None:
     st.markdown('<div class="chat-header">💻 OCR A-Level Computer Science Socratic Coach</div>', unsafe_allow_html=True)
-    
     st.markdown('<div class="selection-card">', unsafe_allow_html=True)
     st.subheader("🎯 Select Revision Target")
     st.write("Choose a component unit and subtopic below to start your guided practice session:")
     
-    selected_unit = st.selectbox(
-        "📘 Step 1: Choose Component:",
-        options=list(OCR_CS_TOPICS.keys())
-    )
-    
-    selected_subtopic = st.selectbox(
-        "🔍 Step 2: Choose Specific CS Topic:",
-        options=OCR_CS_TOPICS[selected_unit]
-    )
+    selected_unit = st.selectbox("📘 Step 1: Choose Component:", options=list(OCR_CS_TOPICS.keys()))
+    selected_subtopic = st.selectbox("🔍 Step 2: Choose Specific CS Topic:", options=OCR_CS_TOPICS[selected_unit])
     
     st.write("")
     if st.button("🚀 Start Socratic Session", type="primary", use_container_width=True):
         st.session_state.active_unit = selected_unit
         st.session_state.active_topic = selected_subtopic
-        st.session_state.graph_state["topic"] = selected_unit
         st.session_state.graph_state["sub_topic"] = selected_subtopic
         st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
@@ -210,48 +223,72 @@ else:
     topic_code = st.session_state.active_topic.split(" ")[0]
     st.markdown(f'<div class="chat-header">🎓 Computer Science Coach ({topic_code})</div>', unsafe_allow_html=True)
     
+    student_turns = sum(1 for m in st.session_state.messages if m.get("role") == "student")
+
     with st.sidebar:
         st.subheader("📌 Active Target")
         st.info(f"**Component:** {st.session_state.active_unit}\n\n**Topic:** {st.session_state.active_topic}")
         
-        st.metric(label="Turn Counter", value=f"{st.session_state.turn_count} / 7")
-        st.progress(min(st.session_state.turn_count / 7, 1.0))
+        st.metric(label="Turn Counter", value=f"{student_turns} / 7")
+        st.progress(min(student_turns / 7, 1.0))
         
         st.write("---")
         if st.button("🔄 New Session / Change Topic", use_container_width=True):
             reset_session()
 
+    # Initial Greeting
     if len(st.session_state.messages) == 0:
-        initial_greeting = f"Welcome! Let's explore **{st.session_state.active_topic}**. What core principle, architectural concept, or algorithmic trade-off pops into mind when you think of this topic?"
+        initial_greeting = (
+            f"Welcome! We're exploring **{st.session_state.active_topic}** today. "
+            f"To get us started, can you suggest a keyword or concept within this topic "
+            f"that you would like to revise?"
+        )
         st.session_state.messages.append({"role": "tutor", "content": initial_greeting, "style": "tutor-msg"})
         st.session_state.graph_state["messages"].append(AIMessage(content=initial_greeting))
 
+    # Render Chat Messages
     for msg in st.session_state.messages:
+        html_content = md_to_html(msg["content"])
         if msg["role"] == "tutor":
             div_class = msg.get("style", "tutor-msg")
             header = "💡 <b>Summary Note</b>" if div_class == "summary-box" else "💻 <b>CS Tutor</b>"
-            st.markdown(f'<div class="{div_class}">{header}<br>{msg["content"]}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="{div_class}">{header}<br><br>{html_content}</div>', unsafe_allow_html=True)
         else:
-            st.markdown(f'<div class="student-msg">🎒 <b>Student</b><br>{msg["content"]}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="student-msg">🎒 <b>Student</b><br><br>{html_content}</div>', unsafe_allow_html=True)
 
-    if st.session_state.turn_count >= 7:
-        st.info("🎉 **Session Complete!** You have completed all 7 turns of the A-Level Socratic dialogue and received your topic summary note. Click **New Session / Change Topic** in the sidebar to review another topic.")
-    else:
-        if user_input := st.chat_input("Type your response here..."):
-            st.session_state.messages.append({"role": "student", "content": user_input})
-            st.session_state.graph_state["messages"].append(HumanMessage(content=user_input))
-            
-            st.session_state.turn_count += 1
-            st.session_state.graph_state["exchange_count"] = st.session_state.turn_count
-            
-            with st.spinner("Analyzing response..."):
-                updated_state = workflow.invoke(st.session_state.graph_state)
-            
-            last_msg = updated_state["messages"][-1]
-            ai_reply = extract_clean_text(last_msg)
+    # Session Status Alert
+    if student_turns >= 7:
+        st.info("🎉 **Session Complete!** You have completed all 7 turns of the A-Level Socratic dialogue and received your performance assessment and gold summary card.")
 
-            display_style = "summary-box" if st.session_state.turn_count >= 7 else "tutor-msg"
+    # Permanent Bottom Chat Input Widget
+    is_disabled = student_turns >= 7
+    placeholder = "Session complete. Select a new topic in the sidebar to continue." if is_disabled else "Type your response here..."
+    
+    if user_input := st.chat_input(placeholder, disabled=is_disabled):
+        st.session_state.messages.append({"role": "student", "content": user_input})
+        st.session_state.graph_state["messages"].append(HumanMessage(content=user_input))
+        
+        current_student_turns = sum(1 for m in st.session_state.messages if m.get("role") == "student")
+        st.session_state.graph_state["turn_count"] = current_student_turns
+        st.session_state.graph_state["is_final_turn"] = (current_student_turns >= 7)
+
+        with st.spinner("Analyzing response and generating assessment..."):
+            updated_state = workflow.invoke(st.session_state.graph_state)
+        
+        last_msg = updated_state["messages"][-1]
+        ai_reply = extract_clean_text(last_msg)
+        ai_reply = clean_latex(ai_reply)
+
+        # Robust Regex Splitting for Turn 7
+        split_match = re.split(r'={3,}\s*SPLIT\s*={3,}', ai_reply, flags=re.IGNORECASE)
+        if len(split_match) > 1:
+            feedback_part = split_match[0].strip()
+            summary_part = split_match[1].strip()
             
-            st.session_state.messages.append({"role": "tutor", "content": ai_reply, "style": display_style})
-            st.session_state.graph_state = updated_state
-            st.rerun()
+            st.session_state.messages.append({"role": "tutor", "content": feedback_part, "style": "tutor-msg"})
+            st.session_state.messages.append({"role": "tutor", "content": summary_part, "style": "summary-box"})
+        else:
+            st.session_state.messages.append({"role": "tutor", "content": ai_reply, "style": "tutor-msg"})
+
+        st.session_state.graph_state = updated_state
+        st.rerun()

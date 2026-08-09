@@ -1,121 +1,134 @@
 import os
-import tomllib
 from typing import TypedDict, List
-from langgraph.graph import StateGraph, END
-from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain_chroma import Chroma
+from langgraph.graph import StateGraph, END
 
-# --- Load Secrets ---
-secrets_path = os.path.join(".streamlit", "secrets.toml")
-if os.path.exists(secrets_path):
-    with open(secrets_path, "rb") as f:
-        secrets = tomllib.load(f)
-        api_key = secrets.get("GOOGLE_API_KEY") or secrets.get("GEMINI_API_KEY")
-        if api_key:
-            os.environ["GOOGLE_API_KEY"] = api_key
-            os.environ["GEMINI_API_KEY"] = api_key
 
-CHROMA_PATH = "./chroma_db"
-
-class ChatState(TypedDict):
+class ChatState(TypedDict, total=False):
     messages: List[BaseMessage]
-    exchange_count: int
-    topic: str
     sub_topic: str
-    frustration_score: float
+    turn_count: int
+    is_final_turn: bool
 
-def get_vector_db():
-    embeddings = GoogleGenerativeAIEmbeddings(
-        model="gemini-embedding-2-preview",
-        google_api_key=os.getenv("GOOGLE_API_KEY")
-    )
-    return Chroma(persist_directory=CHROMA_PATH, embedding_function=embeddings)
 
-def calculate_frustration(messages: List[BaseMessage]) -> float:
-    user_msgs = [m.content.lower() for m in messages if isinstance(m, HumanMessage)]
-    if not user_msgs:
-        return 0.0
-    latest = user_msgs[-1]
-    frustration_words = ["don't know", "dont know", "confused", "tell me", "stuck", "help", "just answer"]
-    return 1.0 if any(w in latest for w in frustration_words) else 0.0
+def get_context(sub_topic: str, user_query: str) -> str:
+    try:
+        embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+        db = Chroma(persist_directory="./chroma_db", embedding_function=embeddings)
+        results = db.similarity_search(user_query, k=3, filter={"sub_topic": sub_topic})
+        return "\n\n".join([doc.page_content for doc in results]) if results else ""
+    except Exception:
+        return "No specific syllabus context found."
 
-def input_guard(state: ChatState) -> dict:
-    frustration = calculate_frustration(state["messages"])
-    return {"frustration_score": frustration}
 
 def socratic_tutor(state: ChatState) -> dict:
-    db = get_vector_db()
-    sub_topic = state.get("sub_topic", "")
-    user_query = state["messages"][-1].content
-    
-    # RAG Retrieval filtered by topic
-    results = db.similarity_search(user_query, k=3, filter={"sub_topic": sub_topic})
-    context = "\n\n".join([doc.page_content for doc in results]) if results else "No specific syllabus context found."
+    sub_topic = state.get("sub_topic", "OCR A-Level Computer Science")
+    user_query = state["messages"][-1].content if state.get("messages") else ""
+    context = get_context(sub_topic, user_query)
 
-    system_prompt = f"""You are an expert Cambridge OCR A-Level Computer Science Socratic Tutor.
-    Topic Focus: {sub_topic}
-    Relevant Syllabus Context:
-    {context}
-
-    Pedagogical Instructions:
-    1. Guide the student using probing questions focused on A-Level assessment objectives (AO1 recall, AO2 application, AO3 design/evaluation/trade-offs).
-    2. Encourage computational thinking: abstraction, decomposition, algorithmic efficiency (Big O), or architecture trade-offs.
-    3. NEVER give direct answers immediately. Ask exactly ONE clear, focused follow-up question per turn.
-    4. Keep responses encouraging, technically precise, and concise.
-    """
-
-    llm = ChatGoogleGenerativeAI(model="gemini-3.6-flash")
-    response = llm.invoke([HumanMessage(content=system_prompt)] + state["messages"])
-    
-    return {
-        "messages": [response],
-        "exchange_count": state["exchange_count"] + 1
-    }
-
-def didactic_fallback(state: ChatState) -> dict:
-    db = get_vector_db()
-    sub_topic = state.get("sub_topic", "")
-    user_query = state["messages"][-1].content
-    
-    results = db.similarity_search(user_query, k=3, filter={"sub_topic": sub_topic})
-    context = "\n\n".join([doc.page_content for doc in results]) if results else "No specific syllabus context found."
-
-    system_prompt = f"""You are an expert Cambridge OCR A-Level Computer Science Tutor wrapping up a Socratic session.
+    system_prompt = f"""You are an expert Socratic OCR A-Level Computer Science Tutor.
     Topic Focus: {sub_topic}
     Syllabus Context:
     {context}
 
-    Instructions:
-    1. FIRST, directly validate the student's final response (e.g., "Spot on!", "Exactly right—...", or "Close! Actually...").
-    2. IMMEDIATELY follow that validation with the final structured topic summary note (using clear headings and bullet points for key facts, definitions, and trade-offs).
-    3. DO NOT ask any follow-up questions. Conclude with a brief, encouraging wrap-up line.
-    """
+    Guide the student step-by-step using probing questions and constructive hints. Never give away full answers directly."""
 
     llm = ChatGoogleGenerativeAI(model="gemini-3.6-flash")
-    
     messages_to_send = [HumanMessage(content=system_prompt)] + list(state["messages"])
     response = llm.invoke(messages_to_send)
-    
+
     return {
-        "messages": state["messages"] + [response],
-        "exchange_count": state["exchange_count"] + 1
+        "messages": state["messages"] + [response]
     }
 
-def route_next(state: ChatState) -> str:
-    # Trigger direct explanation if student is frustrated or A-Level threshold (7 exchanges) reached
-    if state["frustration_score"] >= 1.0 or state["exchange_count"] >= 7:
+
+def didactic_fallback(state: ChatState) -> dict:
+    sub_topic = state.get("sub_topic", "")
+    user_query = state["messages"][-1].content if state.get("messages") else ""
+    context = get_context(sub_topic, user_query)
+
+    system_prompt = f"""You are a strict Cambridge OCR A-Level Computer Science Senior Examiner wrapping up a Socratic revision session.
+    Topic Focus: {sub_topic}
+    Syllabus Context:
+    {context}
+
+    STRICT FORMATTING & LATEX RULES:
+    - NEVER use LaTeX math delimiters like $, $$, \\(, or \\). Write all complexity, matrices, and variables in plain text or Markdown bold/code (e.g., O(V^2), O(1), 1000 x 1000).
+
+    STRICT OCR MARKING RUBRIC:
+    - 80–100%: Accurate concepts AND precise OCR specification keywords used consistently throughout.
+    - 50–79%: Conceptually sound, but relies on informal/layperson language instead of required exam terms.
+    - Below 50%: Vague explanations, partial misconceptions, or missing core terminology.
+
+    INSTRUCTIONS FOR SESSION ENDING:
+    1. **Validate Final Answer:** Directly validate the student's final input in detail first. If code/pseudocode was discussed, include the full exam-standard corrected solution.
+    2. **Performance Assessment:** Apply the rubric above, list technical terms used well vs. missed across the dialogue, give 1–2 targeted feedback points, and recommend next sub-topics.
+    3. **Structured Summary Note:** Provide a clean, comprehensive topic summary data drop.
+
+    FORMAT YOUR OUTPUT EXACTLY AS FOLLOWS (Include the exact separator string ===SPLIT=== on its own line):
+
+    [Your validation of the student's final answer and corrected solution]
+
+    ### 📊 Session Performance
+    - **Overall Accuracy:** [X]%
+    - **Targeted Feedback:** 
+      - [Constructive feedback point 1]
+      - [Constructive feedback point 2]
+    - **Exam Terminology:**
+      - **Keywords Used Well:** [Term 1, Term 2]
+      - **Missed Terms to Learn:** [Term 3, Term 4]
+    - **Recommended Next Revision Topic(s):** [Sub-topic 1 / Sub-topic 2]
+
+    ===SPLIT===
+
+    ### 💡 Topic Summary: [Topic Name]
+    [Detailed structured summary data drop in plain text/Markdown only, NO $ symbols]
+
+    CRITICAL RULE: DO NOT ask any follow-up questions anywhere in your response. Conclude cleanly."""
+
+    llm = ChatGoogleGenerativeAI(model="gemini-3.6-flash")
+    messages_to_send = [HumanMessage(content=system_prompt)] + list(state["messages"])
+    response = llm.invoke(messages_to_send)
+
+    return {
+        "messages": state["messages"] + [response]
+    }
+
+
+def route_turn(state: ChatState) -> str:
+    # Priority 1: Check explicit state flags passed from app.py
+    if state.get("is_final_turn", False) or state.get("turn_count", 0) >= 7:
         return "didactic_fallback"
+
+    # Priority 2: Robust string-based message type counting
+    messages = state.get("messages", [])
+    human_count = 0
+    for m in messages:
+        msg_type = getattr(m, "type", None)
+        class_name = m.__class__.__name__
+        if msg_type == "human" or "Human" in class_name:
+            human_count += 1
+
+    if human_count >= 7:
+        return "didactic_fallback"
+
     return "socratic_tutor"
 
-# --- Build LangGraph ---
+
 builder = StateGraph(ChatState)
-builder.add_node("input_guard", input_guard)
 builder.add_node("socratic_tutor", socratic_tutor)
 builder.add_node("didactic_fallback", didactic_fallback)
 
-builder.set_entry_point("input_guard")
-builder.add_conditional_edges("input_guard", route_next)
+builder.set_conditional_entry_point(
+    route_turn,
+    {
+        "socratic_tutor": "socratic_tutor",
+        "didactic_fallback": "didactic_fallback",
+    }
+)
+
 builder.add_edge("socratic_tutor", END)
 builder.add_edge("didactic_fallback", END)
 
