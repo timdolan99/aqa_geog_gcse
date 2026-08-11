@@ -1,8 +1,8 @@
 import os, json
 from typing import TypedDict, List
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
 from langgraph.graph import StateGraph, END
 
@@ -49,7 +49,7 @@ def socratic_tutor(state: ChatState) -> dict:
     Guide the student step-by-step using probing questions and constructive hints. Never give away full answers directly."""
 
     llm = ChatGoogleGenerativeAI(model="gemini-3.6-flash")
-    messages_to_send = [HumanMessage(content=system_prompt)] + list(state["messages"])
+    messages_to_send = [SystemMessage(content=system_prompt)] + list(state["messages"])
     response = llm.invoke(messages_to_send)
 
     return {
@@ -66,6 +66,8 @@ def didactic_fallback(state: ChatState) -> dict:
     Topic Focus: {sub_topic}
     Syllabus Context:
     {context}
+
+    CRITICAL MANDATE: This is the FINAL turn. You MUST NOT ask any follow-up questions. Conclude immediately and provide the performance assessment and summary card.
 
     STRICT FORMATTING & LATEX RULES:
     - NEVER use LaTeX math delimiters like $, $$, \\(, or \\). Write all complexity, matrices, and variables in plain text or Markdown bold/code.
@@ -101,8 +103,13 @@ def didactic_fallback(state: ChatState) -> dict:
 
     CRITICAL RULE: DO NOT ask any follow-up questions anywhere in your response. Conclude cleanly."""
 
+    # Trailing message forces Gemini to stop questioning and render the summary
+    final_command = HumanMessage(
+        content="[SYSTEM DIRECTIVE: This is turn 5 (FINAL TURN). Do NOT ask any follow-up questions. Provide the final answer validation, performance evaluation, the exact ===SPLIT=== delimiter, and topic summary now.]"
+    )
+
     llm = ChatGoogleGenerativeAI(model="gemini-3.6-flash")
-    messages_to_send = [HumanMessage(content=system_prompt)] + list(state["messages"])
+    messages_to_send = [SystemMessage(content=system_prompt)] + list(state["messages"]) + [final_command]
     response = llm.invoke(messages_to_send)
 
     return {
@@ -111,12 +118,11 @@ def didactic_fallback(state: ChatState) -> dict:
 
 
 def route_turn(state: ChatState) -> str:
-    # Check explicit state flags or turn count threshold from course_spec
     if state.get("is_final_turn", False) or state.get("turn_count", 0) >= TARGET_TURNS:
         return "didactic_fallback"
 
     messages = state.get("messages", [])
-    human_count = sum(1 for m in messages if getattr(m, "type", None) == "human" or "Human" in m.__class__.__name__)
+    human_count = sum(1 for m in messages if getattr(m, "type", None) == "human" or "Human" in m.__class__.__name__ or isinstance(m, HumanMessage))
 
     if human_count >= TARGET_TURNS:
         return "didactic_fallback"
