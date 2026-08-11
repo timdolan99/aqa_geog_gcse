@@ -1,9 +1,22 @@
-import os
+import os, json
 from typing import TypedDict, List
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
-from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
 from langgraph.graph import StateGraph, END
+
+# --- Load dynamic course specification ---
+SPEC_PATH = "course_spec.json"
+if os.path.exists(SPEC_PATH):
+    with open(SPEC_PATH, "r", encoding="utf-8") as f:
+        COURSE_SPEC = json.load(f)
+else:
+    COURSE_SPEC = {}
+
+COURSE_TITLE = COURSE_SPEC.get("course_title", "General Subject")
+LEVEL = COURSE_SPEC.get("level", "GCSE/A-Level")
+TARGET_TURNS = COURSE_SPEC.get("target_turns", 5)
 
 
 class ChatState(TypedDict, total=False):
@@ -15,20 +28,20 @@ class ChatState(TypedDict, total=False):
 
 def get_context(sub_topic: str, user_query: str) -> str:
     try:
-        embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+        embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
         db = Chroma(persist_directory="./chroma_db", embedding_function=embeddings)
-        results = db.similarity_search(user_query, k=3, filter={"sub_topic": sub_topic})
+        results = db.similarity_search(user_query, k=3)
         return "\n\n".join([doc.page_content for doc in results]) if results else ""
     except Exception:
         return "No specific syllabus context found."
 
 
 def socratic_tutor(state: ChatState) -> dict:
-    sub_topic = state.get("sub_topic", "OCR A-Level Computer Science")
+    sub_topic = state.get("sub_topic", COURSE_TITLE)
     user_query = state["messages"][-1].content if state.get("messages") else ""
     context = get_context(sub_topic, user_query)
 
-    system_prompt = f"""You are an expert Socratic OCR A-Level Computer Science Tutor.
+    system_prompt = f"""You are an expert Socratic {COURSE_TITLE} ({LEVEL}) Tutor.
     Topic Focus: {sub_topic}
     Syllabus Context:
     {context}
@@ -49,21 +62,21 @@ def didactic_fallback(state: ChatState) -> dict:
     user_query = state["messages"][-1].content if state.get("messages") else ""
     context = get_context(sub_topic, user_query)
 
-    system_prompt = f"""You are a strict Cambridge OCR A-Level Computer Science Senior Examiner wrapping up a Socratic revision session.
+    system_prompt = f"""You are a strict {COURSE_TITLE} ({LEVEL}) Senior Examiner wrapping up a Socratic revision session.
     Topic Focus: {sub_topic}
     Syllabus Context:
     {context}
 
     STRICT FORMATTING & LATEX RULES:
-    - NEVER use LaTeX math delimiters like $, $$, \\(, or \\). Write all complexity, matrices, and variables in plain text or Markdown bold/code (e.g., O(V^2), O(1), 1000 x 1000).
+    - NEVER use LaTeX math delimiters like $, $$, \\(, or \\). Write all complexity, matrices, and variables in plain text or Markdown bold/code.
 
-    STRICT OCR MARKING RUBRIC:
-    - 80–100%: Accurate concepts AND precise OCR specification keywords used consistently throughout.
-    - 50–79%: Conceptually sound, but relies on informal/layperson language instead of required exam terms.
+    STRICT MARKING RUBRIC:
+    - 80–100%: Accurate concepts AND precise specification keywords used consistently throughout.
+    - 50–79%: Conceptually sound, but relies on informal language instead of required exam terms.
     - Below 50%: Vague explanations, partial misconceptions, or missing core terminology.
 
     INSTRUCTIONS FOR SESSION ENDING:
-    1. **Validate Final Answer:** Directly validate the student's final input in detail first. If code/pseudocode was discussed, include the full exam-standard corrected solution.
+    1. **Validate Final Answer:** Directly validate the student's final input in detail first.
     2. **Performance Assessment:** Apply the rubric above, list technical terms used well vs. missed across the dialogue, give 1–2 targeted feedback points, and recommend next sub-topics.
     3. **Structured Summary Note:** Provide a clean, comprehensive topic summary data drop.
 
@@ -98,20 +111,14 @@ def didactic_fallback(state: ChatState) -> dict:
 
 
 def route_turn(state: ChatState) -> str:
-    # Priority 1: Check explicit state flags passed from app.py
-    if state.get("is_final_turn", False) or state.get("turn_count", 0) >= 7:
+    # Check explicit state flags or turn count threshold from course_spec
+    if state.get("is_final_turn", False) or state.get("turn_count", 0) >= TARGET_TURNS:
         return "didactic_fallback"
 
-    # Priority 2: Robust string-based message type counting
     messages = state.get("messages", [])
-    human_count = 0
-    for m in messages:
-        msg_type = getattr(m, "type", None)
-        class_name = m.__class__.__name__
-        if msg_type == "human" or "Human" in class_name:
-            human_count += 1
+    human_count = sum(1 for m in messages if getattr(m, "type", None) == "human" or "Human" in m.__class__.__name__)
 
-    if human_count >= 7:
+    if human_count >= TARGET_TURNS:
         return "didactic_fallback"
 
     return "socratic_tutor"

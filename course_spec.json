@@ -1,0 +1,25 @@
+{
+  "course_id": "aqa_gcse_geography",
+  "course_title": "AQA GCSE Geography",
+  "level": "GCSE",
+  "target_turns": 5,
+  "topics": {
+    "Living with the physical environment": [
+      "The challenge of natural hazards",
+      "The living world",
+      "Physical landscapes in the UK"
+    ],
+    "Challenges in the human environment": [
+      "Urban issues and challenges",
+      "The changing economic world",
+      "The challenge of resource management"
+    ],
+    "Geographical applications": [
+      "Issue evaluation",
+      "Fieldwork"
+    ],
+    "Geographical skills": [
+      "Geographical skills"
+    ]
+  }
+}
