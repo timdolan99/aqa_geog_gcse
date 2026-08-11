@@ -72,10 +72,12 @@ def didactic_fallback(state: ChatState) -> dict:
     STRICT FORMATTING & LATEX RULES:
     - NEVER use LaTeX math delimiters like $, $$, \\(, or \\). Write all complexity, matrices, and variables in plain text or Markdown bold/code.
 
-    STRICT MARKING RUBRIC:
-    - 80–100%: Accurate concepts AND precise specification keywords used consistently throughout.
-    - 50–79%: Conceptually sound, but relies on informal language instead of required exam terms.
-    - Below 50%: Vague explanations, partial misconceptions, or missing core terminology.
+    OBJECTIVE MARKING RUBRIC:
+    1. Base accuracy strictly on exact specification keyword hit-rate derived from the Syllabus Context.
+    2. Ignore Setup Words: Do not count the initial topic name chosen by the student as a keyword hit.
+    3. Strict Terminology: Only credit official domain terms found in the context. Layperson words get 0% keyword credit.
+    4. Misconception Penalty: Cap the overall score at 20% maximum if the student expresses a fundamental factual error.
+
 
     INSTRUCTIONS FOR SESSION ENDING:
     1. **Validate Final Answer:** Directly validate the student's final input in detail first.
