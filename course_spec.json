@@ -1,69 +1,65 @@
 {
-  "topics": {
-    "1.1 The characteristics of contemporary processors, input, output and storage devices": [
-      "1.1.1 Structure and function of the processor",
-      "1.1.2 Types of processor",
-      "1.1.3 Input, output and storage"
-    ],
-    "1.2 Software and software development": [
-      "1.2.1 Systems Software",
-      "1.2.2 Applications Generation",
-      "1.2.3 Software Development",
-      "1.2.4 Types of Programming Language"
-    ],
-    "1.3 Exchanging data": [
-      "1.3.1 Compression, Encryption and Hashing",
-      "1.3.2 Databases",
-      "1.3.3 Networks",
-      "1.3.4 Web Technologies"
-    ],
-    "1.4 Data types, data structures and algorithms": [
-      "1.4.1 Data Types",
-      "1.4.2 Data Structures",
-      "1.4.3 Boolean Algebra"
-    ],
-    "1.5 Legal, moral, cultural and ethical issues": [
-      "1.5.1 Computing related legislation",
-      "1.5.2 Moral and ethical Issues"
-    ],
-    "2.1 Elements of computational thinking": [
-      "2.1.1 Thinking abstractly",
-      "2.1.2 Thinking ahead",
-      "2.1.3 Thinking procedurally",
-      "2.1.4 Thinking logically",
-      "2.1.5 Thinking concurrently"
-    ],
-    "2.2 Problem solving and programming": [
-      "2.2.1 Programming techniques",
-      "2.2.2 Computational methods"
-    ],
-    "2.3 Algorithms": [
-      "2.3.1 Algorithms"
-    ],
-    "3.1 Analysis of the problem": [
-      "3.1.1 Problem identification",
-      "3.1.2 Stakeholders",
-      "3.1.3 Research the problem",
-      "3.1.4 Specify the proposed solution"
-    ],
-    "3.2 Design of the solution": [
-      "3.2.1 Decompose the problem",
-      "3.2.2 Describe the solution",
-      "3.2.3 Describe the approach to testing"
-    ],
-    "3.3 Developing the solution": [
-      "3.3.1 Iterative development process",
-      "3.3.2 Testing to inform development"
-    ],
-    "3.4 Evaluation": [
-      "3.4.1 Testing to inform evaluation",
-      "3.4.2 Success of the solution",
-      "3.4.3 Describe the final product",
-      "3.4.4 Maintenance and development"
-    ]
-  },
-  "course_id": "ocr_alevel_computer_science",
-  "course_title": "OCR A-Level Computer Science",
-  "level": "A-Level",
-  "target_turns": 7
+  "course_id": "aqa_gcse_geography",
+  "course_title": "AQA GCSE Geography",
+  "level": "GCSE",
+  "target_turns": 5,
+  "subjects": {
+    "3.1 Living with the physical environment": {
+      "3.1.1 Section A: The challenge of natural hazards": [
+        "3.1.1.1 Natural hazards",
+        "3.1.1.2 Tectonic hazards",
+        "3.1.1.3 Weather hazards",
+        "3.1.1.4 Climate change"
+      ],
+      "3.1.2 Section B: The living world": [
+        "3.1.2.1 Ecosystems",
+        "3.1.2.2 Tropical rainforests",
+        "3.1.2.3 Hot deserts",
+        "3.1.2.4 Cold environments"
+      ],
+      "3.1.3 Section C: Physical landscapes in the UK": [
+        "3.1.3.1 UK physical landscapes",
+        "3.1.3.2 Coastal landscapes in the UK",
+        "3.1.3.3 River landscapes in the UK",
+        "3.1.3.4 Glacial landscapes in the UK"
+      ]
+    },
+    "3.2 Challenges in the human environment": {
+      "3.2.1 Section A: Urban issues and challenges": [
+        "Global pattern of urban change and megacities",
+        "Urban growth in LICs and NEEs",
+        "Urban change in cities in the UK",
+        "Urban sustainability and management"
+      ],
+      "3.2.2 Section B: The changing economic world": [
+        "Global variations in economic development and quality of life",
+        "Strategies for reducing the global development gap",
+        "Rapid economic development in LICs and NEEs",
+        "Major changes in the economy of the UK"
+      ],
+      "3.2.3 Section C: The challenge of resource management": [
+        "3.2.3.1 Resource management",
+        "3.2.3.2 Food",
+        "3.2.3.3 Water",
+        "3.2.3.4 Energy"
+      ]
+    },
+    "3.3 Geographical applications": {
+      "3.3 Geographical applications": [
+        "3.3.1 Section A: Issue evaluation",
+        "3.3.2 Section B: Fieldwork"
+      ]
+    },
+    "3.4 Geographical skills": {
+      "3.4 Geographical skills": [
+        "3.4.1 Cartographic skills",
+        "3.4.2 Graphical skills",
+        "3.4.3 Numerical skills",
+        "3.4.4 Statistical skills",
+        "3.4.5 Use of qualitative and quantitative data",
+        "3.4.6 Formulate enquiry and argument",
+        "3.4.7 Literacy"
+      ]
+    }
+  }
 }

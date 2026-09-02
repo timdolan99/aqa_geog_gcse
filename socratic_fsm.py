@@ -1,10 +1,13 @@
-import os, json
-from typing import TypedDict, List
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
+import json
+import os
+import re
+from typing import List, TypedDict
+
+from langchain_chroma import Chroma
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_chroma import Chroma
-from langgraph.graph import StateGraph, END
+from langgraph.graph import END, StateGraph
 
 # --- Load dynamic course specification ---
 SPEC_PATH = "course_spec.json"
@@ -14,8 +17,8 @@ if os.path.exists(SPEC_PATH):
 else:
     COURSE_SPEC = {}
 
-COURSE_TITLE = COURSE_SPEC.get("course_title", "General Subject")
-LEVEL = COURSE_SPEC.get("level", "GCSE/A-Level")
+COURSE_TITLE = COURSE_SPEC.get("course_title", "Socratic Learning Assistant")
+LEVEL = COURSE_SPEC.get("level", "GCSE")
 TARGET_TURNS = COURSE_SPEC.get("target_turns", 5)
 
 
@@ -36,6 +39,27 @@ def get_context(sub_topic: str, user_query: str) -> str:
         return "No specific syllabus context found."
 
 
+def extract_clean_text(response) -> str:
+    if isinstance(response, str):
+        return response
+    if hasattr(response, "content"):
+        return extract_clean_text(response.content)
+    if isinstance(response, list) and len(response) > 0:
+        first_item = response[0]
+        if isinstance(first_item, dict):
+            return first_item.get("text", str(first_item))
+        elif hasattr(first_item, "text"):
+            return first_item.text
+        return extract_clean_text(first_item)
+    if isinstance(response, dict):
+        if "text" in response:
+            return response["text"]
+        elif "content" in response:
+            return extract_clean_text(response["content"])
+    return str(response)
+
+
+# --- Socratic Nodes ---
 def socratic_tutor(state: ChatState) -> dict:
     sub_topic = state.get("sub_topic", COURSE_TITLE)
     user_query = state["messages"][-1].content if state.get("messages") else ""
@@ -49,12 +73,12 @@ def socratic_tutor(state: ChatState) -> dict:
     Guide the student step-by-step using probing questions and constructive hints. Never give away full answers directly."""
 
     llm = ChatGoogleGenerativeAI(model="gemini-3.6-flash")
-    messages_to_send = [SystemMessage(content=system_prompt)] + list(state["messages"])
+    messages_to_send = [SystemMessage(content=system_prompt)] + list(
+        state["messages"]
+    )
     response = llm.invoke(messages_to_send)
 
-    return {
-        "messages": state["messages"] + [response]
-    }
+    return {"messages": state["messages"] + [response]}
 
 
 def didactic_fallback(state: ChatState) -> dict:
@@ -77,7 +101,6 @@ def didactic_fallback(state: ChatState) -> dict:
     2. Ignore Setup Words: Do not count the initial topic name chosen by the student as a keyword hit.
     3. Strict Terminology: Only credit official domain terms found in the context. Layperson words get 0% keyword credit.
     4. Misconception Penalty: Cap the overall score at 20% maximum if the student expresses a fundamental factual error.
-
 
     INSTRUCTIONS FOR SESSION ENDING:
     1. **Validate Final Answer:** Directly validate the student's final input in detail first.
@@ -105,26 +128,41 @@ def didactic_fallback(state: ChatState) -> dict:
 
     CRITICAL RULE: DO NOT ask any follow-up questions anywhere in your response. Conclude cleanly."""
 
-    # DYNAMIC FIX:
-    final_command = HumanMessage(   
-    content=f"[SYSTEM DIRECTIVE: This is turn {TARGET_TURNS} (FINAL TURN). Do NOT ask any follow-up questions. Provide the final answer validation, performance evaluation, the exact ===SPLIT=== delimiter, and topic summary now.]"
+    final_command = HumanMessage(
+        content=(
+            f"[SYSTEM DIRECTIVE: This is turn {TARGET_TURNS} (FINAL TURN). Do NOT"
+            " ask any follow-up questions. Provide the final answer validation,"
+            " performance evaluation, the exact ===SPLIT=== delimiter, and"
+            " topic summary now.]"
+        )
     )
 
     llm = ChatGoogleGenerativeAI(model="gemini-3.6-flash")
-    messages_to_send = [SystemMessage(content=system_prompt)] + list(state["messages"]) + [final_command]
+    messages_to_send = (
+        [SystemMessage(content=system_prompt)]
+        + list(state["messages"])
+        + [final_command]
+    )
     response = llm.invoke(messages_to_send)
 
-    return {
-        "messages": state["messages"] + [response]
-    }
+    return {"messages": state["messages"] + [response]}
 
 
 def route_turn(state: ChatState) -> str:
-    if state.get("is_final_turn", False) or state.get("turn_count", 0) >= TARGET_TURNS:
+    if (
+        state.get("is_final_turn", False)
+        or state.get("turn_count", 0) >= TARGET_TURNS
+    ):
         return "didactic_fallback"
 
     messages = state.get("messages", [])
-    human_count = sum(1 for m in messages if getattr(m, "type", None) == "human" or "Human" in m.__class__.__name__ or isinstance(m, HumanMessage))
+    human_count = sum(
+        1
+        for m in messages
+        if getattr(m, "type", None) == "human"
+        or "Human" in m.__class__.__name__
+        or isinstance(m, HumanMessage)
+    )
 
     if human_count >= TARGET_TURNS:
         return "didactic_fallback"
@@ -141,10 +179,89 @@ builder.set_conditional_entry_point(
     {
         "socratic_tutor": "socratic_tutor",
         "didactic_fallback": "didactic_fallback",
-    }
+    },
 )
 
 builder.add_edge("socratic_tutor", END)
 builder.add_edge("didactic_fallback", END)
 
 workflow = builder.compile()
+
+
+# --- Standalone Quiz Helpers ---
+def generate_quiz_questions(
+    sub_topic: str, course_title: str = COURSE_TITLE, level: str = LEVEL
+) -> list:
+    context = get_context(sub_topic, sub_topic)
+    prompt = f"""You are an expert {course_title} ({level}) Senior Examiner.
+Topic Focus: {sub_topic}
+Syllabus Context:
+{context}
+
+Generate exactly 10 short-answer exam questions testing precise definitions and technical terminology for this subtopic.
+Output ONLY a valid JSON array of 10 question strings, with no additional text or formatting:
+["Question 1 text...", "Question 2 text...", ...]"""
+
+    llm = ChatGoogleGenerativeAI(model="gemini-3.6-flash", temperature=0.3)
+    response = llm.invoke([HumanMessage(content=prompt)])
+
+    raw_text = extract_clean_text(response)
+    clean_text = re.sub(r"```json|```", "", raw_text).strip()
+    return json.loads(clean_text)
+
+
+def grade_quiz_responses(
+    sub_topic: str, questions: list, answers: dict, course_title: str = COURSE_TITLE, level: str = LEVEL
+) -> dict:
+    context = get_context(sub_topic, sub_topic)
+    qa_pairs = "\n".join([
+        f"Q{i+1}: {q}\nStudent Answer: {answers.get(i+1, 'No answer provided')}\n"
+        for i, q in enumerate(questions)
+    ])
+
+    prompt = f"""You are a strict {course_title} ({level}) Senior Examiner grading a 10-question retrieval quiz.
+Topic Focus: {sub_topic}
+Syllabus Context:
+{context}
+
+STRICT MARKING RUBRIC:
+- Base accuracy strictly on exact specification keywords derived from Syllabus Context.
+- Award 1 mark per question ONLY if exact domain terms are present. Layperson terms get 0 marks.
+- Provide concise, actionable feedback focusing on missing exam terminology.
+
+Return your assessment strictly as a single JSON object with no extra commentary:
+{{
+  "total_score": 8,
+  "breakdown": [
+    {{
+      "question_num": 1,
+      "question": "Question text...",
+      "student_answer": "Student text...",
+      "score": 1,
+      "model_answer": "Model specification definition...",
+      "keywords_used": ["Term 1"],
+      "keywords_missed": ["Term 2"],
+      "explanation": "Short sentence explaining mark allocation..."
+    }}
+  ]
+}}
+
+Student Submission:
+{qa_pairs}"""
+
+    llm = ChatGoogleGenerativeAI(model="gemini-3.6-flash", temperature=0)
+    response = llm.invoke([HumanMessage(content=prompt)])
+
+    raw_text = extract_clean_text(response)
+    clean_text = re.sub(r"```json|```", "", raw_text).strip()
+    return json.loads(clean_text)
+
+
+def evaluate_quiz_answers(
+    questions: list,
+    user_answers: dict,
+    topic: str,
+    course_title: str = COURSE_TITLE,
+    level: str = LEVEL,
+) -> dict:
+    return grade_quiz_responses(topic, questions, user_answers, course_title, level)

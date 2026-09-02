@@ -3,7 +3,7 @@ import re, json, os
 import importlib
 import socratic_fsm
 importlib.reload(socratic_fsm)
-from socratic_fsm import workflow
+from socratic_fsm import workflow, generate_quiz_questions, evaluate_quiz_answers
 from langchain_core.messages import HumanMessage, AIMessage
 
 # --- Load Dynamic Course Spec ---
@@ -22,7 +22,6 @@ else:
 COURSE_TITLE = COURSE_SPEC.get("course_title", "Socratic Coach")
 LEVEL = COURSE_SPEC.get("level", "GCSE/A-Level")
 TARGET_TURNS = COURSE_SPEC.get("target_turns", 5)
-TOPICS = COURSE_SPEC.get("topics", {})
 
 # --- Helpers ---
 def extract_clean_text(response) -> str:
@@ -95,14 +94,19 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- Session State ---
+# --- Session State Initialisation ---
 if "active_unit" not in st.session_state:
     st.session_state.active_unit = None
 if "active_topic" not in st.session_state:
     st.session_state.active_topic = None
+if "app_mode" not in st.session_state:
+    st.session_state.app_mode = None
 if "messages" not in st.session_state:
     st.session_state.messages = []
-
+if "quiz_questions" not in st.session_state:
+    st.session_state.quiz_questions = None
+if "quiz_feedback" not in st.session_state:
+    st.session_state.quiz_feedback = None
 
 if "graph_state" not in st.session_state:
     st.session_state.graph_state = {
@@ -115,38 +119,73 @@ if "graph_state" not in st.session_state:
 def reset_session():
     st.session_state.active_unit = None
     st.session_state.active_topic = None
+    st.session_state.app_mode = None
     st.session_state.messages = []
+    st.session_state.quiz_questions = None
+    st.session_state.quiz_feedback = None
     st.session_state.graph_state = {
         "messages": [], "sub_topic": None, "turn_count": 0, "is_final_turn": False
     }
     st.rerun()
 
-# --- Screen Router (2-Tier UI) ---
+# --- Dynamic Screen Router (Supports 2-Tier and 3-Tier UI) ---
 if st.session_state.active_topic is None:
     st.markdown(f'<div class="chat-header">🎓 {COURSE_TITLE} Socratic Coach</div>', unsafe_allow_html=True)
     st.markdown('<div class="selection-card">', unsafe_allow_html=True)
     st.subheader("🎯 Select Revision Target")
-    st.write("Choose a unit and subtopic to begin your practice session:")
     
-    # 2-Tier Selection: Unit -> Subtopic
-    unit_keys = list(TOPICS.keys()) if TOPICS else ["General"]
-    selected_unit = st.selectbox("📘 Step 1: Choose Unit / Component:", options=unit_keys)
-    
-    subtopic_options = TOPICS.get(selected_unit, [])
-    if not subtopic_options:
-        subtopic_options = [selected_unit]
-    
-    selected_subtopic = st.selectbox("🔍 Step 2: Choose Specific Subtopic:", options=subtopic_options)
+    raw_structure = COURSE_SPEC.get("subjects") or COURSE_SPEC.get("topics", {})
+    first_key = next(iter(raw_structure), None)
+    is_three_tier = isinstance(raw_structure.get(first_key), dict) if first_key else False
+
+    if is_three_tier:
+        st.write("Choose a paper, section, and subtopic to begin your practice session:")
+        sel_subject = st.selectbox("🔬 Choose Component / Paper:", options=list(raw_structure.keys()))
+        units_dict = raw_structure.get(sel_subject, {})
+        sel_unit = st.selectbox("📘 Choose Section / Unit:", options=list(units_dict.keys()))
+        subtopics = units_dict.get(sel_unit, [])
+        sel_subtopic = st.selectbox("🔍 Choose Specific Subtopic:", options=subtopics)
+        
+        target_unit_name = sel_unit
+        target_subtopic_name = sel_subtopic
+        full_query = f"{sel_subject} - {sel_unit}: {sel_subtopic}"
+    else:
+        st.write("Choose a unit and subtopic to begin your practice session:")
+        sel_unit = st.selectbox("📘 Step 1: Choose Unit / Component:", options=list(raw_structure.keys()))
+        subtopics = raw_structure.get(sel_unit, [])
+        sel_subtopic = st.selectbox("🔍 Step 2: Choose Specific Subtopic:", options=subtopics)
+        
+        target_unit_name = sel_unit
+        target_subtopic_name = sel_subtopic
+        full_query = sel_subtopic
 
     st.write("")
+    
+    # Primary Action Button
     if st.button("🚀 Start Socratic Session", type="primary", use_container_width=True):
-        st.session_state.active_unit = selected_unit
-        st.session_state.active_topic = selected_subtopic
-        st.session_state.graph_state["sub_topic"] = selected_subtopic
+        st.session_state.app_mode = "socratic"
+        st.session_state.active_unit = target_unit_name
+        st.session_state.active_topic = target_subtopic_name
+        st.session_state.graph_state["sub_topic"] = full_query
         st.rerun()
+
+    st.write("")
+
+    # Secondary Action Button (Stacked Directly Below)
+    if st.button("📝 Take Retrieval Quiz", use_container_width=True):
+        st.session_state.app_mode = "quiz"
+        st.session_state.active_unit = target_unit_name
+        st.session_state.active_topic = target_subtopic_name
+        with st.spinner("Generating specification retrieval questions..."):
+            st.session_state.quiz_questions = generate_quiz_questions(
+                full_query, COURSE_TITLE, LEVEL
+            )
+        st.rerun()
+
     st.markdown('</div>', unsafe_allow_html=True)
 
-else:
+# --- Socratic Mode View ---
+elif st.session_state.app_mode == "socratic":
     st.markdown(f'<div class="chat-header">🎓 {COURSE_TITLE} Coach</div>', unsafe_allow_html=True)
     
     student_turns = sum(1 for m in st.session_state.messages if m.get("role") == "student")
@@ -193,9 +232,7 @@ else:
         st.session_state.graph_state["turn_count"] = current_student_turns
         st.session_state.graph_state["is_final_turn"] = (current_student_turns >= TARGET_TURNS)
 
-
         with st.spinner("Analyzing response and generating feedback..."):
-        # Always pass the full list of Human/AI objects clean from graph_state
             input_payload = {
                 "messages": st.session_state.graph_state["messages"],
                 "sub_topic": st.session_state.active_topic,
@@ -216,3 +253,78 @@ else:
 
         st.session_state.graph_state = updated_state
         st.rerun()
+
+# --- Quiz Mode View (Collapsible Accordion UI) ---
+elif st.session_state.app_mode == "quiz":
+    st.markdown(f'<div class="chat-header">📝 {COURSE_TITLE} Retrieval Quiz</div>', unsafe_allow_html=True)
+    
+    with st.sidebar:
+        st.subheader("📌 Active Target")
+        st.info(f"**Unit:** {st.session_state.active_unit}\n\n**Topic:** {st.session_state.active_topic}")
+        st.write("---")
+        if st.button("🔄 Change Topic / Mode", use_container_width=True):
+            reset_session()
+
+    questions = st.session_state.get("quiz_questions")
+    
+    if questions:
+        if st.session_state.quiz_feedback is None:
+            with st.form("retrieval_quiz_form"):
+                st.subheader(f"Practice Quiz: {st.session_state.active_topic}")
+                user_answers = {}
+                for idx, q in enumerate(questions, 1):
+                    q_text = q.get("question", q) if isinstance(q, dict) else q
+                    st.markdown(f"**Q{idx}: {q_text}**")
+                    user_answers[idx] = st.text_input(f"Your Answer for Q{idx}:", key=f"quiz_ans_{idx}")
+                    st.write("")
+                
+                submitted = st.form_submit_button("Submit Quiz for Feedback", type="primary", use_container_width=True)
+                
+                if submitted:
+                    with st.spinner("Evaluating your responses against specification mark schemes..."):
+                        feedback = evaluate_quiz_answers(
+                            questions=questions,
+                            user_answers=user_answers,
+                            topic=st.session_state.active_topic,
+                            course_title=COURSE_TITLE,
+                            level=LEVEL
+                        )
+                        st.session_state.quiz_feedback = feedback
+                        st.rerun()
+        else:
+            feedback_data = st.session_state.quiz_feedback
+            total_score = feedback_data.get("total_score", 0)
+            breakdown = feedback_data.get("breakdown", [])
+            total_questions = len(breakdown) if breakdown else len(questions)
+
+            # Highlighted Banner Box
+            st.success(f"🎉 **Quiz Complete! Total Score: {total_score} / {total_questions}**\n\nReview your keyword accuracy breakdown below:")
+            st.write("")
+
+            # Accordion Expander Views
+            for item in breakdown:
+                q_num = item.get("question_num", "")
+                q_text = item.get("question", "")
+                score = item.get("score", 0)
+                user_ans = item.get("student_answer", "No answer provided")
+                model_ans = item.get("model_answer", "")
+                used = ", ".join(item.get("keywords_used", [])) or "None"
+                missed = ", ".join(item.get("keywords_missed", [])) or "None"
+                explanation = item.get("explanation", "")
+
+                label = f"Q{q_num}: {q_text} — Score: {score}/1"
+                
+                with st.expander(label, expanded=False):
+                    st.markdown(f"**Your Answer:**\n\n> {user_ans}")
+                    st.markdown(f"**Model Answer:** {model_ans}")
+                    st.markdown(f"**Key Terms Used:** {used}")
+                    st.markdown(f"**Missed Keywords:** {missed}")
+                    st.info(f"💡 **Examiner Note:** {explanation}")
+
+            st.write("")
+            if st.button("🔄 Retake Quiz / Try Another Topic", type="primary", use_container_width=True):
+                reset_session()
+    else:
+        st.error("No questions were generated. Please return and select a topic again.")
+        if st.button("Back to Selection Screen"):
+            reset_session()
