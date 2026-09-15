@@ -1,7 +1,7 @@
 import json
 import os
 import re
-from typing import List, TypedDict
+from typing import List, TypedDict, Dict, Any
 
 from langchain_chroma import Chroma
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
@@ -17,7 +17,7 @@ if os.path.exists(SPEC_PATH):
 else:
     COURSE_SPEC = {}
 
-COURSE_TITLE = COURSE_SPEC.get("course_title", "Socratic Learning Assistant")
+COURSE_TITLE = COURSE_SPEC.get("course_title", "GCSE Geography")
 LEVEL = COURSE_SPEC.get("level", "GCSE")
 TARGET_TURNS = COURSE_SPEC.get("target_turns", 5)
 
@@ -66,16 +66,16 @@ def socratic_tutor(state: ChatState) -> dict:
     context = get_context(sub_topic, user_query)
 
     system_prompt = f"""You are an expert Socratic {COURSE_TITLE} ({LEVEL}) Tutor.
-    Topic Focus: {sub_topic}
-    Syllabus Context:
-    {context}
+Topic Focus: {sub_topic}
+Syllabus Context:
+{context}
 
-    Guide the student step-by-step using probing questions and constructive hints. Never give away full answers directly."""
+Guide the student step-by-step using probing questions and constructive hints. 
+Focus on developing their disciplinary literacy as a Geographer: encourage precise physical/human terms, process sequences, spatial links, and named case study facts/statistics. 
+Never give away full answers directly."""
 
     llm = ChatGoogleGenerativeAI(model="gemini-3.6-flash")
-    messages_to_send = [SystemMessage(content=system_prompt)] + list(
-        state["messages"]
-    )
+    messages_to_send = [SystemMessage(content=system_prompt)] + list(state["messages"])
     response = llm.invoke(messages_to_send)
 
     return {"messages": state["messages"] + [response]}
@@ -87,46 +87,46 @@ def didactic_fallback(state: ChatState) -> dict:
     context = get_context(sub_topic, user_query)
 
     system_prompt = f"""You are a strict {COURSE_TITLE} ({LEVEL}) Senior Examiner wrapping up a Socratic revision session.
-    Topic Focus: {sub_topic}
-    Syllabus Context:
-    {context}
+Topic Focus: {sub_topic}
+Syllabus Context:
+{context}
 
-    CRITICAL MANDATE: This is the FINAL turn. You MUST NOT ask any follow-up questions. Conclude immediately and provide the performance assessment and summary card.
+CRITICAL MANDATE: This is the FINAL turn. You MUST NOT ask any follow-up questions. Conclude immediately and provide the performance assessment and summary card.
 
-    STRICT FORMATTING & LATEX RULES:
-    - NEVER use LaTeX math delimiters like $, $$, \\(, or \\). Write all complexity, matrices, and variables in plain text or Markdown bold/code.
+STRICT FORMATTING & LATEX RULES:
+- NEVER use LaTeX math delimiters like $, $$, \\(, or \\). Write all text in plain text or Markdown bold/code.
 
-    OBJECTIVE MARKING RUBRIC:
-    1. Base accuracy strictly on exact specification keyword hit-rate derived from the Syllabus Context.
-    2. Ignore Setup Words: Do not count the initial topic name chosen by the student as a keyword hit.
-    3. Strict Terminology: Only credit official domain terms found in the context. Layperson words get 0% keyword credit.
-    4. Misconception Penalty: Cap the overall score at 20% maximum if the student expresses a fundamental factual error.
+OBJECTIVE MARKING RUBRIC:
+1. Base accuracy strictly on exact geographical specification keywords derived from the Syllabus Context.
+2. Ignore Setup Words: Do not count the initial topic name chosen by the student as a keyword hit.
+3. Strict Terminology: Only credit official domain terms (e.g., 'hydraulic action', 'precipitation', 'urbanisation', named case study data). Layperson words get 0% keyword credit.
+4. Misconception Penalty: Cap the overall score at 20% maximum if the student expresses a fundamental factual error.
 
-    INSTRUCTIONS FOR SESSION ENDING:
-    1. **Validate Final Answer:** Directly validate the student's final input in detail first.
-    2. **Performance Assessment:** Apply the rubric above, list technical terms used well vs. missed across the dialogue, give 1–2 targeted feedback points, and recommend next sub-topics.
-    3. **Structured Summary Note:** Provide a clean, comprehensive topic summary data drop.
+INSTRUCTIONS FOR SESSION ENDING:
+1. **Validate Final Answer:** Directly validate the student's final input in detail first.
+2. **Performance Assessment:** Apply the rubric above, list technical geographical terms used well vs. missed across the dialogue, give 1–2 targeted feedback points, and recommend next sub-topics.
+3. **Structured Summary Note:** Provide a clean, comprehensive topic summary data drop.
 
-    FORMAT YOUR OUTPUT EXACTLY AS FOLLOWS (Include the exact separator string ===SPLIT=== on its own line):
+FORMAT YOUR OUTPUT EXACTLY AS FOLLOWS (Include the exact separator string ===SPLIT=== on its own line):
 
-    [Your validation of the student's final answer and corrected solution]
+[Your validation of the student's final answer and corrected solution]
 
-    ### 📊 Session Performance
-    - **Overall Accuracy:** [X]%
-    - **Targeted Feedback:** 
-      - [Constructive feedback point 1]
-      - [Constructive feedback point 2]
-    - **Exam Terminology:**
-      - **Keywords Used Well:** [Term 1, Term 2]
-      - **Missed Terms to Learn:** [Term 3, Term 4]
-    - **Recommended Next Revision Topic(s):** [Sub-topic 1 / Sub-topic 2]
+### 📊 Session Performance
+- **Overall Accuracy:** [X]%
+- **Targeted Feedback:** 
+  - [Constructive feedback point 1]
+  - [Constructive feedback point 2]
+- **Geographical Terminology:**
+  - **Keywords Used Well:** [Term 1, Term 2]
+  - **Missed Terms to Learn:** [Term 3, Term 4]
+- **Recommended Next Revision Topic(s):** [Sub-topic 1 / Sub-topic 2]
 
-    ===SPLIT===
+===SPLIT===
 
-    ### 💡 Topic Summary: [Topic Name]
-    [Detailed structured summary data drop in plain text/Markdown only, NO $ symbols]
+### 💡 Topic Summary: [Topic Name]
+[Detailed structured summary data drop in plain text/Markdown only, NO $ symbols]
 
-    CRITICAL RULE: DO NOT ask any follow-up questions anywhere in your response. Conclude cleanly."""
+CRITICAL RULE: DO NOT ask any follow-up questions anywhere in your response. Conclude cleanly."""
 
     final_command = HumanMessage(
         content=(
@@ -149,16 +149,12 @@ def didactic_fallback(state: ChatState) -> dict:
 
 
 def route_turn(state: ChatState) -> str:
-    if (
-        state.get("is_final_turn", False)
-        or state.get("turn_count", 0) >= TARGET_TURNS
-    ):
+    if state.get("is_final_turn", False) or state.get("turn_count", 0) >= TARGET_TURNS:
         return "didactic_fallback"
 
     messages = state.get("messages", [])
     human_count = sum(
-        1
-        for m in messages
+        1 for m in messages
         if getattr(m, "type", None) == "human"
         or "Human" in m.__class__.__name__
         or isinstance(m, HumanMessage)
@@ -198,7 +194,7 @@ Topic Focus: {sub_topic}
 Syllabus Context:
 {context}
 
-Generate exactly 10 short-answer exam questions testing precise definitions and technical terminology for this subtopic.
+Generate exactly 10 short-answer exam questions testing precise definitions, physical/human processes, and case study facts for this subtopic.
 Output ONLY a valid JSON array of 10 question strings, with no additional text or formatting:
 ["Question 1 text...", "Question 2 text...", ...]"""
 
@@ -226,7 +222,7 @@ Syllabus Context:
 
 STRICT MARKING RUBRIC:
 - Base accuracy strictly on exact specification keywords derived from Syllabus Context.
-- Award 1 mark per question ONLY if exact domain terms are present. Layperson terms get 0 marks.
+- Award 1 mark per question ONLY if exact geographical terms or case study facts are present. Layperson terms get 0 marks.
 - Provide concise, actionable feedback focusing on missing exam terminology.
 
 Return your assessment strictly as a single JSON object with no extra commentary:
@@ -265,3 +261,81 @@ def evaluate_quiz_answers(
     level: str = LEVEL,
 ) -> dict:
     return grade_quiz_responses(topic, questions, user_answers, course_title, level)
+
+
+# --- Extended & Rewrite Mode Helpers ---
+def generate_extended_question(sub_topic: str, course_title: str = COURSE_TITLE, level: str = LEVEL) -> str:
+    prompt = f"""You are an expert {level} Geography lead examiner for {course_title}.
+Create ONE high-tier 6-mark or 9-mark extended response question for the subtopic: '{sub_topic}'.
+Use standard command words like 'Explain', 'Assess', 'Evaluate', or 'To what extent'.
+Return ONLY the raw question text."""
+    llm = ChatGoogleGenerativeAI(model="gemini-3.6-flash", temperature=0.3)
+    response = llm.invoke([HumanMessage(content=prompt)])
+    return response.content.strip()
+
+
+def grade_extended_response(sub_topic: str, question: str, student_answer: str, course_title: str = COURSE_TITLE, level: str = LEVEL) -> Dict[str, Any]:
+    prompt = f"""You are a senior {level} Geography examiner evaluating an extended response.
+Topic: {sub_topic}
+Question: {question}
+Student Response: {student_answer}
+
+Evaluate based on geographical disciplinary literacy: cause-and-effect reasoning, spatial processes, and case study detail/data.
+
+Return a JSON object:
+{{
+  "score": 5,
+  "max_score": 6,
+  "disciplinary_level": "Competent",
+  "keywords_used": ["term 1", "term 2"],
+  "keywords_missed": ["term 3"],
+  "strengths": "Summary of strengths...",
+  "struggle_advice": "Advice for improvement...",
+  "model_answer": "Exemplar top-band response..."
+}}"""
+    llm = ChatGoogleGenerativeAI(model="gemini-3.6-flash", temperature=0)
+    response = llm.invoke([HumanMessage(content=prompt)])
+    clean_text = extract_clean_text(response)
+    clean_text = re.sub(r"```json|```", "", clean_text).strip()
+    return json.loads(clean_text)
+
+
+def generate_layman_transformation_prompt(sub_topic: str, course_title: str = COURSE_TITLE, level: str = LEVEL) -> Dict[str, str]:
+    prompt = f"""Create an exercise for {level} Geography on '{sub_topic}'.
+1. Write a typical 4-mark exam question.
+2. Write a poorly phrased, informal student response using vague everyday language (e.g., 'lots of rain', 'gets really hot', 'people moving for jobs' without geographical terms or stats).
+
+Return ONLY JSON:
+{{
+  "question": "Exam question...",
+  "layman_answer": "Informal student draft..."
+}}"""
+    llm = ChatGoogleGenerativeAI(model="gemini-3.6-flash", temperature=0.4)
+    response = llm.invoke([HumanMessage(content=prompt)])
+    clean_text = extract_clean_text(response)
+    clean_text = re.sub(r"```json|```", "", clean_text).strip()
+    return json.loads(clean_text)
+
+
+def grade_disciplinary_rewrite(sub_topic: str, question: str, layman_answer: str, student_rewrite: str, course_title: str = COURSE_TITLE, level: str = LEVEL) -> Dict[str, Any]:
+    prompt = f"""Grade a student's upgraded response in {level} Geography.
+Topic: {sub_topic}
+Question: {question}
+Original Informal Draft: {layman_answer}
+Student Upgraded Rewrite: {student_rewrite}
+
+Assess whether the student replaced informal language with precise geographical terminology, physical/human process details, or named case study facts.
+
+Return JSON:
+{{
+  "score": 4,
+  "max_score": 4,
+  "key_terms_used": ["term 1"],
+  "missed_terms": ["term 2"],
+  "feedback": "Constructive examiner note..."
+}}"""
+    llm = ChatGoogleGenerativeAI(model="gemini-3.6-flash", temperature=0)
+    response = llm.invoke([HumanMessage(content=prompt)])
+    clean_text = extract_clean_text(response)
+    clean_text = re.sub(r"```json|```", "", clean_text).strip()
+    return json.loads(clean_text)
